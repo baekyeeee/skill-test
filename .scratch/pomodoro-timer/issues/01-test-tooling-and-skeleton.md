@@ -4,9 +4,9 @@
 
 **Blocked by:** None(可以馬上開始)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `npm run test` 能跑 Vitest
-- [ ] 可以用 `@testing-library/react` 的 `renderHook` 測試 hook
-- [ ] `usePomodoroTimer()` 回傳預設初始狀態:phase 為 Focus Session、status 為等待手動開始、cycleCount 為 0(cyclesBeforeLongBreak 預設 4)、dailyTotals 為空,且有對應測試
-- [ ] 首頁可以正常渲染,畫面上看得到目前 Phase 與狀態的文字(先不用能互動)
+- [x] `npm run test` 能跑 Vitest
+- [x] 可以用 `@testing-library/react` 的 `renderHook` 測試 hook
+- [x] `usePomodoroTimer()` 回傳預設初始狀態:phase 為 Focus Session、status 為等待手動開始、cycleCount 為 0(cyclesBeforeLongBreak 預設 4)、dailyTotals 為空,且有對應測試
+- [x] 首頁可以正常渲染,畫面上看得到目前 Phase 與狀態的文字(先不用能互動)

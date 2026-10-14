@@ -1,9 +1,20 @@
 "use client";
 
-import { PHASE_LABEL, STATUS_LABEL, usePomodoroTimer } from "@/lib/pomodoro-timer";
+import {
+  PHASE_LABEL,
+  STATUS_LABEL,
+  usePomodoroTimer,
+} from "@/lib/pomodoro-timer";
+
+function formatRemaining(ms: number): string {
+  const totalSeconds = Math.ceil(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
 
 export default function Home() {
-  const { state } = usePomodoroTimer();
+  const { state, remainingMs, start } = usePomodoroTimer();
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center bg-zinc-50 font-sans dark:bg-black">
@@ -18,7 +29,20 @@ export default function Home() {
           <p className="text-lg text-zinc-700 dark:text-zinc-300">
             狀態：{STATUS_LABEL[state.status]}
           </p>
+          {remainingMs !== null && (
+            <p className="text-5xl font-mono font-semibold tabular-nums text-black dark:text-zinc-50">
+              {formatRemaining(remainingMs)}
+            </p>
+          )}
         </div>
+        <button
+          type="button"
+          onClick={start}
+          disabled={state.status !== "awaitingManualStart"}
+          className="rounded-full bg-foreground px-6 py-3 text-base font-medium text-background transition-colors hover:bg-[#383838] disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-[#ccc]"
+        >
+          開始 Start
+        </button>
       </main>
     </div>
   );

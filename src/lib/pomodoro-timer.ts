@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 export type Phase = "focus" | "shortBreak" | "longBreak";
 export type Status = "awaitingManualStart" | "running" | "paused";
@@ -21,7 +21,7 @@ export interface PomodoroState {
   dailyTotals: Record<DayKey, number>;
 }
 
-const DEFAULT_SETTINGS: PomodoroSettings = {
+export const DEFAULT_SETTINGS: PomodoroSettings = {
   focusMin: 25,
   shortBreakMin: 5,
   longBreakMin: 15,
@@ -50,7 +50,78 @@ function initialState(): PomodoroState {
   };
 }
 
-export function usePomodoroTimer() {
-  const [state] = useState<PomodoroState>(initialState);
-  return { state };
+function durationMs(phase: Phase, settings: PomodoroSettings): number {
+  const minutes =
+    phase === "focus"
+      ? settings.focusMin
+      : phase === "shortBreak"
+        ? settings.shortBreakMin
+        : settings.longBreakMin;
+  return minutes * 60 * 1000;
+}
+
+const TICK_MS = 250;
+
+export interface UsePomodoroTimerResult {
+  state: PomodoroState;
+  /** Milliseconds left in the running Phase, or null when not running. */
+  remainingMs: number | null;
+  start: () => void;
+}
+
+interface InternalState {
+  state: PomodoroState;
+  phaseEndAt: number | null;
+  now: number;
+}
+
+function initialInternalState(): InternalState {
+  // `now` is only read while status === "running", which only happens after
+  // `start()` runs (an event handler) — safe to default without a clock read here,
+  // which would otherwise get baked into the prerender as a stale value.
+  return { state: initialState(), phaseEndAt: null, now: 0 };
+}
+
+export function usePomodoroTimer(): UsePomodoroTimerResult {
+  const [internal, setInternal] = useState<InternalState>(initialInternalState);
+
+  const start = useCallback(() => {
+    const startedAt = Date.now();
+    setInternal((prev) => {
+      if (prev.state.status !== "awaitingManualStart") return prev;
+      return {
+        state: { ...prev.state, status: "running" },
+        phaseEndAt:
+          startedAt + durationMs(prev.state.phase, prev.state.settings),
+        now: startedAt,
+      };
+    });
+  }, []);
+
+  useEffect(() => {
+    if (internal.state.status !== "running") return;
+
+    const id = setInterval(() => {
+      const current = Date.now();
+      setInternal((prev) => {
+        if (prev.phaseEndAt !== null && current >= prev.phaseEndAt) {
+          return {
+            state: { ...prev.state, status: "awaitingManualStart" },
+            phaseEndAt: null,
+            now: current,
+          };
+        }
+        return { ...prev, now: current };
+      });
+    }, TICK_MS);
+
+    return () => clearInterval(id);
+  }, [internal.state.status]);
+
+  const remainingMs =
+    internal.state.status === "running" && internal.phaseEndAt !== null
+      ? Math.max(0, internal.phaseEndAt - internal.now)
+      : null;
+
+  return { state: internal.state, remainingMs, start };
 }
