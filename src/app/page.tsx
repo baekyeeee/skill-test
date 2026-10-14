@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import { SettingsDialog } from "./settings-dialog";
 import {
   PHASE_LABEL,
   STATUS_LABEL,
@@ -33,8 +35,10 @@ export default function Home() {
     pause,
     resume,
     skip,
-  } =
-    usePomodoroTimer();
+    updateSettings,
+    resetSettings,
+  } = usePomodoroTimer();
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center bg-zinc-50 font-sans dark:bg-black">
@@ -113,6 +117,20 @@ export default function Home() {
             </ul>
           )}
         </section>
+        <button
+          type="button"
+          onClick={() => setSettingsOpen(true)}
+          className="text-zinc-600 underline underline-offset-4 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
+        >
+          設定 Settings
+        </button>
+        <SettingsDialog
+          open={settingsOpen}
+          settings={state.settings}
+          onChange={updateSettings}
+          onReset={resetSettings}
+          onClose={() => setSettingsOpen(false)}
+        />
       </main>
     </div>
   );

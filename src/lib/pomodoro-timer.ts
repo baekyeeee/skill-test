@@ -28,6 +28,21 @@ export const DEFAULT_SETTINGS: PomodoroSettings = {
   cyclesBeforeLongBreak: 4,
 };
 
+export const SETTINGS_BOUNDS: Record<
+  keyof PomodoroSettings,
+  { min: number; max: number }
+> = {
+  focusMin: { min: 1, max: 180 },
+  shortBreakMin: { min: 1, max: 180 },
+  longBreakMin: { min: 1, max: 180 },
+  cyclesBeforeLongBreak: { min: 1, max: 12 },
+};
+
+function clampSetting(key: keyof PomodoroSettings, value: number): number {
+  const { min, max } = SETTINGS_BOUNDS[key];
+  return Math.min(max, Math.max(min, Math.round(value)));
+}
+
 export const PHASE_LABEL: Record<Phase, string> = {
   focus: "Focus Session（專注）",
   shortBreak: "Short Break（短休息）",
@@ -92,6 +107,9 @@ export interface UsePomodoroTimerResult {
   pause: () => void;
   resume: () => void;
   skip: () => void;
+  /** Applies to the next Phase; the running one keeps its end time. Values are rounded and clamped. */
+  updateSettings: (changes: Partial<PomodoroSettings>) => void;
+  resetSettings: () => void;
 }
 
 interface InternalState {
@@ -355,6 +373,28 @@ export function usePomodoroTimer(
     });
   }, [clock]);
 
+  const updateSettings = useCallback((changes: Partial<PomodoroSettings>) => {
+    setInternal((prev) => {
+      const settings = { ...prev.state.settings };
+      for (const key of Object.keys(SETTINGS_BOUNDS) as Array<
+        keyof PomodoroSettings
+      >) {
+        const value = changes[key];
+        if (typeof value === "number" && Number.isFinite(value)) {
+          settings[key] = clampSetting(key, value);
+        }
+      }
+      return { ...prev, state: { ...prev.state, settings } };
+    });
+  }, []);
+
+  const resetSettings = useCallback(() => {
+    setInternal((prev) => ({
+      ...prev,
+      state: { ...prev.state, settings: DEFAULT_SETTINGS },
+    }));
+  }, []);
+
   useEffect(() => {
     if (internal.state.status !== "running") return;
 
@@ -396,5 +436,7 @@ export function usePomodoroTimer(
     pause,
     resume,
     skip,
+    updateSettings,
+    resetSettings,
   };
 }

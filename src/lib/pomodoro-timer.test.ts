@@ -474,4 +474,145 @@ describe("usePomodoroTimer", () => {
       expect(result.current.state.cycleCount).toBe(0);
     });
   });
+
+  describe("Settings", () => {
+    it("applies legal changes, and the next Phase picks up the new durations", () => {
+      vi.useFakeTimers();
+      try {
+        const { result } = renderHook(() =>
+          usePomodoroTimer({ storage: memoryStorage() }),
+        );
+
+        act(() => {
+          result.current.updateSettings({ focusMin: 10, shortBreakMin: 2 });
+        });
+        expect(result.current.state.settings).toEqual({
+          focusMin: 10,
+          shortBreakMin: 2,
+          longBreakMin: 15,
+          cyclesBeforeLongBreak: 4,
+        });
+
+        act(() => {
+          result.current.start();
+        });
+        expect(result.current.remainingMs).toBeLessThanOrEqual(10 * MIN);
+        act(() => {
+          vi.advanceTimersByTime(10 * MIN + 500);
+        });
+
+        expect(result.current.state.phase).toBe("shortBreak");
+        expect(result.current.remainingMs).toBeLessThanOrEqual(2 * MIN);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("does not change the Phase that is already running", () => {
+      const { result } = renderHook(() =>
+        usePomodoroTimer({ storage: memoryStorage() }),
+      );
+
+      act(() => {
+        result.current.start();
+      });
+      const before = result.current.remainingMs;
+      act(() => {
+        result.current.updateSettings({ focusMin: 5 });
+      });
+
+      expect(result.current.remainingMs).toBe(before);
+    });
+
+    it("clamps out-of-range values to the bounds and rounds fractions", () => {
+      const { result } = renderHook(() =>
+        usePomodoroTimer({ storage: memoryStorage() }),
+      );
+
+      act(() => {
+        result.current.updateSettings({
+          focusMin: 0,
+          shortBreakMin: 999,
+          longBreakMin: 20.6,
+          cyclesBeforeLongBreak: 50,
+        });
+      });
+
+      expect(result.current.state.settings).toEqual({
+        focusMin: 1,
+        shortBreakMin: 180,
+        longBreakMin: 21,
+        cyclesBeforeLongBreak: 12,
+      });
+    });
+
+    it("ignores values that are not numbers", () => {
+      const { result } = renderHook(() =>
+        usePomodoroTimer({ storage: memoryStorage() }),
+      );
+
+      act(() => {
+        result.current.updateSettings({ focusMin: Number.NaN });
+      });
+
+      expect(result.current.state.settings.focusMin).toBe(25);
+    });
+
+    it("uses the new Cycle threshold for the Long Break", () => {
+      const { result } = renderHook(() =>
+        usePomodoroTimer({ storage: memoryStorage() }),
+      );
+
+      act(() => {
+        result.current.updateSettings({ cyclesBeforeLongBreak: 1 });
+      });
+      act(() => {
+        result.current.start();
+      });
+      act(() => {
+        result.current.skip();
+      });
+
+      expect(result.current.state.phase).toBe("longBreak");
+    });
+
+    it("resets to the defaults in one action", () => {
+      const { result } = renderHook(() =>
+        usePomodoroTimer({ storage: memoryStorage() }),
+      );
+
+      act(() => {
+        result.current.updateSettings({
+          focusMin: 50,
+          shortBreakMin: 10,
+          longBreakMin: 30,
+          cyclesBeforeLongBreak: 2,
+        });
+      });
+      act(() => {
+        result.current.resetSettings();
+      });
+
+      expect(result.current.state.settings).toEqual({
+        focusMin: 25,
+        shortBreakMin: 5,
+        longBreakMin: 15,
+        cyclesBeforeLongBreak: 4,
+      });
+    });
+
+    it("keeps changed settings across a reload", () => {
+      const storage = memoryStorage();
+
+      const first = renderHook(() => usePomodoroTimer({ storage }));
+      act(() => {
+        first.result.current.updateSettings({ focusMin: 45 });
+      });
+      first.unmount();
+
+      const second = renderHook(() => usePomodoroTimer({ storage }));
+
+      expect(second.result.current.state.settings.focusMin).toBe(45);
+    });
+  });
 });
