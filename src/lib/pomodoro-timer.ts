@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { playChime } from "./chime";
 
 export type Phase = "focus" | "shortBreak" | "longBreak";
 export type Status = "awaitingManualStart" | "running" | "paused";
@@ -88,6 +89,8 @@ export interface UsePomodoroTimerOptions {
   now?: () => number;
   /** Storage adapter, defaults to `localStorage`. Keep the reference stable across renders. */
   storage?: StorageLike | null;
+  /** Called once per Phase end (natural or skipped). Defaults to the built-in chime. Keep the reference stable across renders. */
+  playSound?: () => void | Promise<void>;
 }
 
 export interface DailyHistoryEntry {
@@ -120,6 +123,8 @@ interface InternalState {
   /** Frozen remaining time while paused; null otherwise. */
   pausedRemainingMs: number | null;
   now: number;
+  /** Incremented on every Phase end so an effect can play the sound exactly once per end. */
+  phaseEndCount: number;
 }
 
 function initialInternalState(): InternalState {
@@ -132,6 +137,7 @@ function initialInternalState(): InternalState {
     phaseEndAt: null,
     pausedRemainingMs: null,
     now: 0,
+    phaseEndCount: 0,
   };
 }
 
@@ -175,6 +181,7 @@ function completePhase(
       phaseEndAt: at + durationMs(phase, state.settings),
       pausedRemainingMs: null,
       now: at,
+      phaseEndCount: prev.phaseEndCount + 1,
     };
   }
 
@@ -189,6 +196,7 @@ function completePhase(
     phaseEndAt: null,
     pausedRemainingMs: null,
     now: at,
+    phaseEndCount: prev.phaseEndCount + 1,
   };
 }
 
@@ -253,6 +261,7 @@ function loadInternalState(storage: StorageLike | null): InternalState | null {
       phaseEndAt: saved.phaseEndAt,
       pausedRemainingMs: saved.pausedRemainingMs,
       now: 0,
+      phaseEndCount: 0,
     };
   } catch {
     return null;
@@ -282,6 +291,7 @@ export function usePomodoroTimer(
   const clock = options.now ?? Date.now;
   const storage =
     options.storage === undefined ? defaultStorage() : options.storage;
+  const playSound = options.playSound ?? playChime;
 
   const [internal, setInternal] = useState<InternalState>(initialInternalState);
   const [hydrated, setHydrated] = useState(false);
@@ -294,10 +304,23 @@ export function usePomodoroTimer(
     // legitimate setState-in-effect: it can't run in the initializer without a
     // hydration mismatch.
     /* eslint-disable react-hooks/set-state-in-effect */
-    if (saved) setInternal(settle(saved, clock()));
+    // Phases that finished while the page was closed settle silently.
+    if (saved) setInternal({ ...settle(saved, clock()), phaseEndCount: 0 });
     setHydrated(true);
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [storage, clock]);
+
+  const announcedPhaseEnds = useRef(0);
+  useEffect(() => {
+    if (internal.phaseEndCount <= announcedPhaseEnds.current) return;
+    announcedPhaseEnds.current = internal.phaseEndCount;
+    try {
+      // A blocked or failing sound must never affect the timer.
+      Promise.resolve(playSound()).catch(() => {});
+    } catch {
+      // Same: a synchronous failure just means no sound.
+    }
+  }, [internal.phaseEndCount, playSound]);
 
   // Persist only the fields that survive a reload, so the per-tick `now`
   // update doesn't rewrite storage four times a second.
@@ -310,6 +333,7 @@ export function usePomodoroTimer(
       phaseEndAt,
       pausedRemainingMs,
       now: 0,
+      phaseEndCount: 0,
     });
   }, [hydrated, storage, state, phaseStartedAt, phaseEndAt, pausedRemainingMs]);
 
@@ -324,6 +348,7 @@ export function usePomodoroTimer(
           startedAt + durationMs(prev.state.phase, prev.state.settings),
         pausedRemainingMs: null,
         now: startedAt,
+        phaseEndCount: prev.phaseEndCount,
       };
     });
   }, [clock]);

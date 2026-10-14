@@ -615,4 +615,109 @@ describe("usePomodoroTimer", () => {
       expect(second.result.current.state.settings.focusMin).toBe(45);
     });
   });
+
+  describe("Phase end sound", () => {
+    it("plays once when a Phase ends naturally", () => {
+      vi.useFakeTimers();
+      try {
+        const playSound = vi.fn();
+        const { result } = renderHook(() =>
+          usePomodoroTimer({ storage: memoryStorage(), playSound }),
+        );
+
+        act(() => {
+          result.current.start();
+        });
+        expect(playSound).not.toHaveBeenCalled();
+
+        act(() => {
+          vi.advanceTimersByTime(FOCUS_DURATION_MS + 500);
+        });
+        expect(playSound).toHaveBeenCalledTimes(1);
+
+        act(() => {
+          vi.advanceTimersByTime(SHORT_BREAK_MS + 500);
+        });
+        expect(playSound).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("plays when a Phase is skipped, but not when skip is ignored", () => {
+      const playSound = vi.fn();
+      const { result } = renderHook(() =>
+        usePomodoroTimer({ storage: memoryStorage(), playSound }),
+      );
+
+      act(() => {
+        result.current.skip(); // awaiting start: ignored
+      });
+      expect(playSound).not.toHaveBeenCalled();
+
+      act(() => {
+        result.current.start();
+      });
+      act(() => {
+        result.current.skip();
+      });
+      expect(playSound).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not play for Phases that finished while the page was closed", () => {
+      let t = new Date(2024, 0, 1, 10, 0).getTime();
+      const clock = () => t;
+      const storage = memoryStorage();
+
+      const first = renderHook(() =>
+        usePomodoroTimer({ now: clock, storage, playSound: vi.fn() }),
+      );
+      act(() => {
+        first.result.current.start();
+      });
+      first.unmount();
+      t += 12 * 60 * MIN;
+
+      const playSound = vi.fn();
+      const second = renderHook(() =>
+        usePomodoroTimer({ now: clock, storage, playSound }),
+      );
+
+      expect(second.result.current.state.cycleCount).toBe(1);
+      expect(playSound).not.toHaveBeenCalled();
+    });
+
+    it("keeps the timer correct when playing the sound throws or rejects", () => {
+      vi.useFakeTimers();
+      try {
+        const playSound = vi
+          .fn()
+          .mockImplementationOnce(() => {
+            throw new Error("blocked");
+          })
+          .mockImplementationOnce(() => Promise.reject(new Error("blocked")));
+        const { result } = renderHook(() =>
+          usePomodoroTimer({ storage: memoryStorage(), playSound }),
+        );
+
+        act(() => {
+          result.current.start();
+        });
+        act(() => {
+          result.current.skip();
+        });
+        expect(result.current.state.phase).toBe("shortBreak");
+        expect(result.current.state.status).toBe("running");
+
+        act(() => {
+          result.current.skip();
+        });
+        expect(result.current.state.phase).toBe("focus");
+        expect(result.current.state.status).toBe("awaitingManualStart");
+        expect(playSound).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
 });
