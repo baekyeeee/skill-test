@@ -4,10 +4,10 @@
 
 **Blocked by:** 03
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `usePomodoroTimer` 新增 `pause`/`resume`:暫停時剩餘時間固定不變,直到按下繼續才繼續倒數
-- [ ] `usePomodoroTimer` 新增 `skip`:提早結束目前 Phase,並照自然結束的規則轉換到下一個 Phase
-- [ ] 提早結束的 Focus Session 一樣會讓 Cycle 計數 +1(跟自然完成的規則相同)
-- [ ] 首頁有「暫停/繼續」「提早結束」按鈕,狀態對應正確地啟用/停用
-- [ ] 有測試覆蓋:暫停中前進時間不影響剩餘時間;提早結束後 Cycle 與下一個 Phase 轉換正確
+- [x] `usePomodoroTimer` 新增 `pause`/`resume`:暫停時剩餘時間固定不變,直到按下繼續才繼續倒數
+- [x] `usePomodoroTimer` 新增 `skip`:提早結束目前 Phase,並照自然結束的規則轉換到下一個 Phase
+- [x] 提早結束的 Focus Session 一樣會讓 Cycle 計數 +1(跟自然完成的規則相同)
+- [x] 首頁有「暫停/繼續」「提早結束」按鈕,狀態對應正確地啟用/停用
+- [x] 有測試覆蓋:暫停中前進時間不影響剩餘時間;提早結束後 Cycle 與下一個 Phase 轉換正確

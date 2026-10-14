@@ -114,4 +114,149 @@ describe("usePomodoroTimer", () => {
       vi.useRealTimers();
     }
   });
+
+  it("keeps the remaining time fixed while paused and resumes counting down", () => {
+    vi.useFakeTimers();
+    try {
+      const { result } = renderHook(() => usePomodoroTimer());
+
+      act(() => {
+        result.current.start();
+      });
+      act(() => {
+        vi.advanceTimersByTime(60_000);
+      });
+      act(() => {
+        result.current.pause();
+      });
+      const remainingAtPause = result.current.remainingMs;
+
+      expect(result.current.state.status).toBe("paused");
+      expect(remainingAtPause).toBe(FOCUS_DURATION_MS - 60_000);
+
+      act(() => {
+        vi.advanceTimersByTime(FOCUS_DURATION_MS * 2);
+      });
+      expect(result.current.state.status).toBe("paused");
+      expect(result.current.state.phase).toBe("focus");
+      expect(result.current.remainingMs).toBe(remainingAtPause);
+
+      act(() => {
+        result.current.resume();
+      });
+      expect(result.current.state.status).toBe("running");
+      act(() => {
+        vi.advanceTimersByTime(30_000);
+      });
+      expect(result.current.remainingMs).toBe(remainingAtPause! - 30_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ignores pause and resume when they are not legal for the current status", () => {
+    const { result } = renderHook(() => usePomodoroTimer());
+
+    act(() => {
+      result.current.pause();
+      result.current.resume();
+    });
+    expect(result.current.state.status).toBe("awaitingManualStart");
+
+    act(() => {
+      result.current.start();
+      result.current.resume();
+    });
+    expect(result.current.state.status).toBe("running");
+  });
+
+  it("skipping a Focus Session counts the Cycle and auto-starts the next Break", () => {
+    vi.useFakeTimers();
+    try {
+      const { result } = renderHook(() => usePomodoroTimer());
+
+      act(() => {
+        result.current.start();
+      });
+      act(() => {
+        vi.advanceTimersByTime(60_000);
+      });
+      act(() => {
+        result.current.skip();
+      });
+
+      expect(result.current.state.cycleCount).toBe(1);
+      expect(result.current.state.phase).toBe("shortBreak");
+      expect(result.current.state.status).toBe("running");
+      expect(result.current.remainingMs).toBeLessThanOrEqual(SHORT_BREAK_MS);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("skipping a paused Focus Session still advances; skipping a Break awaits a manual Focus start; skip is ignored when awaiting start", () => {
+    vi.useFakeTimers();
+    try {
+      const { result } = renderHook(() => usePomodoroTimer());
+
+      act(() => {
+        result.current.skip();
+      });
+      expect(result.current.state.phase).toBe("focus");
+      expect(result.current.state.cycleCount).toBe(0);
+
+      act(() => {
+        result.current.start();
+      });
+      act(() => {
+        result.current.pause();
+      });
+      act(() => {
+        result.current.skip();
+      });
+      expect(result.current.state.phase).toBe("shortBreak");
+      expect(result.current.state.status).toBe("running");
+      expect(result.current.state.cycleCount).toBe(1);
+
+      act(() => {
+        result.current.skip();
+      });
+      expect(result.current.state.phase).toBe("focus");
+      expect(result.current.state.status).toBe("awaitingManualStart");
+      expect(result.current.state.cycleCount).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("skipping the last Focus Session of a Cycle starts a Long Break", () => {
+    vi.useFakeTimers();
+    try {
+      const { result } = renderHook(() => usePomodoroTimer());
+      const { cyclesBeforeLongBreak } = DEFAULT_SETTINGS;
+
+      for (let i = 1; i < cyclesBeforeLongBreak; i++) {
+        act(() => {
+          result.current.start();
+        });
+        act(() => {
+          result.current.skip();
+        });
+        act(() => {
+          result.current.skip();
+        });
+      }
+      act(() => {
+        result.current.start();
+      });
+      act(() => {
+        result.current.skip();
+      });
+
+      expect(result.current.state.phase).toBe("longBreak");
+      expect(result.current.state.cycleCount).toBe(cyclesBeforeLongBreak);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

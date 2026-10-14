@@ -64,14 +64,19 @@ const TICK_MS = 250;
 
 export interface UsePomodoroTimerResult {
   state: PomodoroState;
-  /** Milliseconds left in the running Phase, or null when not running. */
+  /** Milliseconds left in the running or paused Phase, or null when awaiting start. */
   remainingMs: number | null;
   start: () => void;
+  pause: () => void;
+  resume: () => void;
+  skip: () => void;
 }
 
 interface InternalState {
   state: PomodoroState;
   phaseEndAt: number | null;
+  /** Frozen remaining time while paused; null otherwise. */
+  pausedRemainingMs: number | null;
   now: number;
 }
 
@@ -79,7 +84,12 @@ function initialInternalState(): InternalState {
   // `now` is only read while status === "running", which only happens after
   // `start()` runs (an event handler) — safe to default without a clock read here,
   // which would otherwise get baked into the prerender as a stale value.
-  return { state: initialState(), phaseEndAt: null, now: 0 };
+  return {
+    state: initialState(),
+    phaseEndAt: null,
+    pausedRemainingMs: null,
+    now: 0,
+  };
 }
 
 /**
@@ -99,6 +109,7 @@ function completePhase(prev: InternalState, current: number): InternalState {
     return {
       state: { ...state, phase, status: "running", cycleCount },
       phaseEndAt: current + durationMs(phase, state.settings),
+      pausedRemainingMs: null,
       now: current,
     };
   }
@@ -111,6 +122,7 @@ function completePhase(prev: InternalState, current: number): InternalState {
       cycleCount: state.phase === "longBreak" ? 0 : state.cycleCount,
     },
     phaseEndAt: null,
+    pausedRemainingMs: null,
     now: current,
   };
 }
@@ -126,8 +138,47 @@ export function usePomodoroTimer(): UsePomodoroTimerResult {
         state: { ...prev.state, status: "running" },
         phaseEndAt:
           startedAt + durationMs(prev.state.phase, prev.state.settings),
+        pausedRemainingMs: null,
         now: startedAt,
       };
+    });
+  }, []);
+
+  const pause = useCallback(() => {
+    const pausedAt = Date.now();
+    setInternal((prev) => {
+      if (prev.state.status !== "running" || prev.phaseEndAt === null) {
+        return prev;
+      }
+      return {
+        state: { ...prev.state, status: "paused" },
+        phaseEndAt: null,
+        pausedRemainingMs: Math.max(0, prev.phaseEndAt - pausedAt),
+        now: pausedAt,
+      };
+    });
+  }, []);
+
+  const resume = useCallback(() => {
+    const resumedAt = Date.now();
+    setInternal((prev) => {
+      if (prev.state.status !== "paused" || prev.pausedRemainingMs === null) {
+        return prev;
+      }
+      return {
+        state: { ...prev.state, status: "running" },
+        phaseEndAt: resumedAt + prev.pausedRemainingMs,
+        pausedRemainingMs: null,
+        now: resumedAt,
+      };
+    });
+  }, []);
+
+  const skip = useCallback(() => {
+    const skippedAt = Date.now();
+    setInternal((prev) => {
+      if (prev.state.status === "awaitingManualStart") return prev;
+      return completePhase(prev, skippedAt);
     });
   }, []);
 
@@ -150,7 +201,9 @@ export function usePomodoroTimer(): UsePomodoroTimerResult {
   const remainingMs =
     internal.state.status === "running" && internal.phaseEndAt !== null
       ? Math.max(0, internal.phaseEndAt - internal.now)
-      : null;
+      : internal.state.status === "paused"
+        ? internal.pausedRemainingMs
+        : null;
 
-  return { state: internal.state, remainingMs, start };
+  return { state: internal.state, remainingMs, start, pause, resume, skip };
 }
