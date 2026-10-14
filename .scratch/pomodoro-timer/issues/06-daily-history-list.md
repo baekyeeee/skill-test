@@ -4,8 +4,8 @@
 
 **Blocked by:** 05
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] 首頁有一個每日總表區塊,列出 `dailyTotals` 裡的每一天跟對應的總時數,依日期排序
-- [ ] 沒有紀錄時顯示合理的空狀態文字
-- [ ] 有測試覆蓋:多天資料時列表渲染正確(透過 `usePomodoroTimer` 的狀態,不直接操作 DOM 細節)
+- [x] 首頁有一個每日總表區塊,列出 `dailyTotals` 裡的每一天跟對應的總時數,依日期排序
+- [x] 沒有紀錄時顯示合理的空狀態文字
+- [x] 有測試覆蓋:多天資料時列表渲染正確(透過 `usePomodoroTimer` 的狀態,不直接操作 DOM 細節)

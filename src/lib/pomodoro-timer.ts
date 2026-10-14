@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 export type Phase = "focus" | "shortBreak" | "longBreak";
 export type Status = "awaitingManualStart" | "running" | "paused";
@@ -75,12 +75,19 @@ export interface UsePomodoroTimerOptions {
   storage?: StorageLike | null;
 }
 
+export interface DailyHistoryEntry {
+  day: DayKey;
+  totalMs: number;
+}
+
 export interface UsePomodoroTimerResult {
   state: PomodoroState;
   /** Milliseconds left in the running or paused Phase, or null when awaiting start. */
   remainingMs: number | null;
   /** Focus time credited to the local calendar day of the last known clock reading. */
   todayTotalMs: number;
+  /** One Daily Focus Total per recorded day, newest first. */
+  history: DailyHistoryEntry[];
   start: () => void;
   pause: () => void;
   resume: () => void;
@@ -371,10 +378,20 @@ export function usePomodoroTimer(
       ? 0
       : (internal.state.dailyTotals[dayKey(internal.now)] ?? 0);
 
+  const history = useMemo(
+    () =>
+      Object.entries(state.dailyTotals)
+        .map(([day, totalMs]) => ({ day, totalMs }))
+        // ISO day keys sort chronologically as plain strings.
+        .sort((a, b) => b.day.localeCompare(a.day)),
+    [state.dailyTotals],
+  );
+
   return {
     state: internal.state,
     remainingMs,
     todayTotalMs,
+    history,
     start,
     pause,
     resume,

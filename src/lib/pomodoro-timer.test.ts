@@ -423,6 +423,48 @@ describe("usePomodoroTimer", () => {
       expect(second.result.current.remainingMs).toBeNull();
     });
 
+    it("exposes the history as one entry per recorded day, newest first", () => {
+      const storage = memoryStorage({
+        "pomodoro-timer-state": JSON.stringify({
+          state: {
+            settings: {
+              focusMin: 25,
+              shortBreakMin: 5,
+              longBreakMin: 15,
+              cyclesBeforeLongBreak: 4,
+            },
+            phase: "focus",
+            status: "awaitingManualStart",
+            cycleCount: 0,
+            dailyTotals: {
+              "2024-01-03": 50 * MIN,
+              "2023-12-31": 25 * MIN,
+              "2024-01-01": 75 * MIN,
+            },
+          },
+          phaseStartedAt: null,
+          phaseEndAt: null,
+          pausedRemainingMs: null,
+        }),
+      });
+
+      const { result } = renderHook(() => usePomodoroTimer({ storage }));
+
+      expect(result.current.history).toEqual([
+        { day: "2024-01-03", totalMs: 50 * MIN },
+        { day: "2024-01-01", totalMs: 75 * MIN },
+        { day: "2023-12-31", totalMs: 25 * MIN },
+      ]);
+    });
+
+    it("has an empty history before any Focus Session is recorded", () => {
+      const { result } = renderHook(() =>
+        usePomodoroTimer({ storage: memoryStorage() }),
+      );
+
+      expect(result.current.history).toEqual([]);
+    });
+
     it("ignores corrupted stored data and starts fresh", () => {
       const storage = memoryStorage({ "pomodoro-timer-state": "{not json" });
 

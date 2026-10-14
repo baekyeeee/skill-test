@@ -24,7 +24,16 @@ function formatTotal(ms: number): string {
 }
 
 export default function Home() {
-  const { state, remainingMs, todayTotalMs, start, pause, resume, skip } =
+  const {
+    state,
+    remainingMs,
+    todayTotalMs,
+    history,
+    start,
+    pause,
+    resume,
+    skip,
+  } =
     usePomodoroTimer();
 
   return (
@@ -82,6 +91,28 @@ export default function Home() {
             提早結束 Skip
           </button>
         </div>
+        <section className="flex w-full max-w-sm flex-col gap-2 text-left">
+          <h2 className="text-lg font-semibold text-black dark:text-zinc-50">
+            每日專注紀錄
+          </h2>
+          {history.length === 0 ? (
+            <p className="text-zinc-500 dark:text-zinc-400">
+              還沒有專注紀錄，完成一次專注後會顯示在這裡。
+            </p>
+          ) : (
+            <ul className="divide-y divide-zinc-200 dark:divide-zinc-800">
+              {history.map(({ day, totalMs }) => (
+                <li
+                  key={day}
+                  className="flex justify-between py-2 text-zinc-700 dark:text-zinc-300"
+                >
+                  <span className="font-mono tabular-nums">{day}</span>
+                  <span>{formatTotal(totalMs)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       </main>
     </div>
   );
