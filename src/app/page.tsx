@@ -16,8 +16,15 @@ function formatRemaining(ms: number): string {
 const BUTTON_CLASS =
   "min-w-40 whitespace-nowrap rounded-full bg-foreground px-6 py-3 text-base font-medium text-background transition-colors hover:bg-[#383838] disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-[#ccc]";
 
+function formatTotal(ms: number): string {
+  const totalMinutes = Math.floor(ms / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return hours > 0 ? `${hours} 小時 ${minutes} 分` : `${minutes} 分`;
+}
+
 export default function Home() {
-  const { state, remainingMs, start, pause, resume, skip } =
+  const { state, remainingMs, todayTotalMs, start, pause, resume, skip } =
     usePomodoroTimer();
 
   return (
@@ -35,6 +42,9 @@ export default function Home() {
           </p>
           <p className="text-lg text-zinc-700 dark:text-zinc-300">
             Cycle：{state.cycleCount} / {state.settings.cyclesBeforeLongBreak}
+          </p>
+          <p className="text-lg text-zinc-700 dark:text-zinc-300">
+            今日專注：{formatTotal(todayTotalMs)}
           </p>
           <p className="h-14 text-5xl font-mono font-semibold tabular-nums text-black dark:text-zinc-50">
             {remainingMs !== null ? formatRemaining(remainingMs) : null}

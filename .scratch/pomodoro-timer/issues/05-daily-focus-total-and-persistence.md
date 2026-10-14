@@ -4,11 +4,11 @@
 
 **Blocked by:** 04
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Focus Session 結束(自然或提早結束)時,把經過時間累加進 `dailyTotals[開始那天]`
-- [ ] 計時器狀態(Phase、狀態、Cycle 計數、絕對結束時間、Daily Focus Totals)存進 `localStorage`,重新整理頁面後能還原
-- [ ] 重新整理時,若存檔的絕對結束時間早就已經過了,依序把已經完成的 Phase 結算、推進,直到遇到「等待手動開始」才停止,不會無限自動跑下去
-- [ ] 一次 Focus Session 跨過本地時區的午夜,整段時間都算在開始的那一天
-- [ ] 首頁顯示「今日」的 Daily Focus Total
-- [ ] 有測試覆蓋:提早結束的部分計時、長時間離線後重建狀態、跨午夜歸屬三種情境(可直接參考 prototype 的對應情境)
+- [x] Focus Session 結束(自然或提早結束)時,把經過時間累加進 `dailyTotals[開始那天]`
+- [x] 計時器狀態(Phase、狀態、Cycle 計數、絕對結束時間、Daily Focus Totals)存進 `localStorage`,重新整理頁面後能還原
+- [x] 重新整理時,若存檔的絕對結束時間早就已經過了,依序把已經完成的 Phase 結算、推進,直到遇到「等待手動開始」才停止,不會無限自動跑下去
+- [x] 一次 Focus Session 跨過本地時區的午夜,整段時間都算在開始的那一天
+- [x] 首頁顯示「今日」的 Daily Focus Total
+- [x] 有測試覆蓋:提早結束的部分計時、長時間離線後重建狀態、跨午夜歸屬三種情境(可直接參考 prototype 的對應情境)

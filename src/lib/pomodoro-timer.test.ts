@@ -1,6 +1,25 @@
 import { describe, expect, it, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
-import { DEFAULT_SETTINGS, usePomodoroTimer } from "./pomodoro-timer";
+import {
+  DEFAULT_SETTINGS,
+  usePomodoroTimer,
+  type StorageLike,
+} from "./pomodoro-timer";
+
+function memoryStorage(initial: Record<string, string> = {}): StorageLike & {
+  data: Record<string, string>;
+} {
+  const data = { ...initial };
+  return {
+    data,
+    getItem: (key) => (key in data ? data[key] : null),
+    setItem: (key, value) => {
+      data[key] = value;
+    },
+  };
+}
+
+const MIN = 60 * 1000;
 
 const FOCUS_DURATION_MS = DEFAULT_SETTINGS.focusMin * 60 * 1000;
 const SHORT_BREAK_MS = DEFAULT_SETTINGS.shortBreakMin * 60 * 1000;
@@ -258,5 +277,159 @@ describe("usePomodoroTimer", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  describe("Daily Focus Total and persistence", () => {
+    it("credits only the elapsed (unpaused) time of an early-skipped Focus Session to its start day", () => {
+      let t = new Date(2024, 0, 1, 10, 0).getTime();
+      const clock = () => t;
+      const storage = memoryStorage();
+      vi.useFakeTimers();
+      try {
+        const { result } = renderHook(() =>
+          usePomodoroTimer({ now: clock, storage }),
+        );
+
+        act(() => {
+          result.current.start();
+        });
+        t += 10 * MIN;
+        act(() => {
+          result.current.pause();
+        });
+        t += 60 * MIN; // paused time must not count
+        act(() => {
+          result.current.resume();
+        });
+        t += 5 * MIN;
+        act(() => {
+          result.current.skip();
+        });
+
+        expect(result.current.state.dailyTotals).toEqual({
+          "2024-01-01": 15 * MIN,
+        });
+        expect(result.current.todayTotalMs).toBe(15 * MIN);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("credits a natural Focus Session in full and accumulates across sessions on the same day", () => {
+      let t = new Date(2024, 0, 1, 9, 0).getTime();
+      const clock = () => t;
+      const storage = memoryStorage();
+      vi.useFakeTimers();
+      try {
+        const { result } = renderHook(() =>
+          usePomodoroTimer({ now: clock, storage }),
+        );
+
+        act(() => {
+          result.current.start();
+        });
+        t += 5 * MIN;
+        act(() => {
+          result.current.skip(); // 5 min focus -> short break
+        });
+        act(() => {
+          result.current.skip(); // skip break
+        });
+        act(() => {
+          result.current.start();
+        });
+        t += 25 * MIN;
+        act(() => {
+          vi.advanceTimersByTime(25 * MIN + 500);
+        });
+
+        expect(result.current.state.dailyTotals["2024-01-01"]).toBe(30 * MIN);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("credits a Focus Session crossing local midnight entirely to the day it started", () => {
+      let t = new Date(2024, 0, 1, 23, 50).getTime();
+      const clock = () => t;
+      const storage = memoryStorage();
+      vi.useFakeTimers();
+      try {
+        const { result } = renderHook(() =>
+          usePomodoroTimer({ now: clock, storage }),
+        );
+
+        act(() => {
+          result.current.start();
+        });
+        t += 20 * MIN; // now 00:10 on Jan 2
+        act(() => {
+          result.current.skip();
+        });
+
+        expect(result.current.state.dailyTotals).toEqual({
+          "2024-01-01": 20 * MIN,
+        });
+        expect(result.current.todayTotalMs).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("restores the state after a reload and keeps counting down from the stored absolute end time", () => {
+      let t = new Date(2024, 0, 1, 10, 0).getTime();
+      const clock = () => t;
+      const storage = memoryStorage();
+
+      const first = renderHook(() => usePomodoroTimer({ now: clock, storage }));
+      act(() => {
+        first.result.current.start();
+      });
+      t += 10 * MIN;
+      first.unmount();
+
+      const second = renderHook(() =>
+        usePomodoroTimer({ now: clock, storage }),
+      );
+
+      expect(second.result.current.state.phase).toBe("focus");
+      expect(second.result.current.state.status).toBe("running");
+      expect(second.result.current.remainingMs).toBe(15 * MIN);
+    });
+
+    it("after a long absence, settles finished Phases in order and stops at the manual-start gate", () => {
+      let t = new Date(2024, 0, 1, 10, 0).getTime();
+      const clock = () => t;
+      const storage = memoryStorage();
+
+      const first = renderHook(() => usePomodoroTimer({ now: clock, storage }));
+      act(() => {
+        first.result.current.start();
+      });
+      first.unmount();
+
+      t += 12 * 60 * MIN; // away overnight
+
+      const second = renderHook(() =>
+        usePomodoroTimer({ now: clock, storage }),
+      );
+
+      expect(second.result.current.state.phase).toBe("focus");
+      expect(second.result.current.state.status).toBe("awaitingManualStart");
+      expect(second.result.current.state.cycleCount).toBe(1);
+      expect(second.result.current.state.dailyTotals).toEqual({
+        "2024-01-01": 25 * MIN,
+      });
+      expect(second.result.current.remainingMs).toBeNull();
+    });
+
+    it("ignores corrupted stored data and starts fresh", () => {
+      const storage = memoryStorage({ "pomodoro-timer-state": "{not json" });
+
+      const { result } = renderHook(() => usePomodoroTimer({ storage }));
+
+      expect(result.current.state.status).toBe("awaitingManualStart");
+      expect(result.current.state.cycleCount).toBe(0);
+    });
   });
 });

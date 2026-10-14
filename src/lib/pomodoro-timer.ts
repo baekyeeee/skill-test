@@ -61,11 +61,26 @@ function durationMs(phase: Phase, settings: PomodoroSettings): number {
 }
 
 const TICK_MS = 250;
+const STORAGE_KEY = "pomodoro-timer-state";
+
+export interface StorageLike {
+  getItem: (key: string) => string | null;
+  setItem: (key: string, value: string) => void;
+}
+
+export interface UsePomodoroTimerOptions {
+  /** Clock provider, injectable for tests. Keep the reference stable across renders. */
+  now?: () => number;
+  /** Storage adapter, defaults to `localStorage`. Keep the reference stable across renders. */
+  storage?: StorageLike | null;
+}
 
 export interface UsePomodoroTimerResult {
   state: PomodoroState;
   /** Milliseconds left in the running or paused Phase, or null when awaiting start. */
   remainingMs: number | null;
+  /** Focus time credited to the local calendar day of the last known clock reading. */
+  todayTotalMs: number;
   start: () => void;
   pause: () => void;
   resume: () => void;
@@ -74,6 +89,8 @@ export interface UsePomodoroTimerResult {
 
 interface InternalState {
   state: PomodoroState;
+  /** When the current Phase began; keys the Daily Focus Total it credits. */
+  phaseStartedAt: number | null;
   phaseEndAt: number | null;
   /** Frozen remaining time while paused; null otherwise. */
   pausedRemainingMs: number | null;
@@ -86,18 +103,31 @@ function initialInternalState(): InternalState {
   // which would otherwise get baked into the prerender as a stale value.
   return {
     state: initialState(),
+    phaseStartedAt: null,
     phaseEndAt: null,
     pausedRemainingMs: null,
     now: 0,
   };
 }
 
+/** Local calendar day, e.g. "2024-01-01". */
+function dayKey(timestamp: number): DayKey {
+  const d = new Date(timestamp);
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${month}-${day}`;
+}
+
 /**
- * Natural end of the running Phase. A Focus Session advances the Cycle and
- * auto-starts a Break; a Break always hands back to a manually-started Focus
- * Session, and a Long Break closes the Cycle.
+ * Ends the current Phase at `at`. A Focus Session credits `creditedMs` to the
+ * day it started, advances the Cycle and auto-starts a Break; a Break always
+ * hands back to a manually-started Focus Session, and a Long Break closes the Cycle.
  */
-function completePhase(prev: InternalState, current: number): InternalState {
+function completePhase(
+  prev: InternalState,
+  at: number,
+  creditedMs: number,
+): InternalState {
   const { state } = prev;
 
   if (state.phase === "focus") {
@@ -106,11 +136,20 @@ function completePhase(prev: InternalState, current: number): InternalState {
       cycleCount >= state.settings.cyclesBeforeLongBreak
         ? "longBreak"
         : "shortBreak";
+    const startedKey = dayKey(prev.phaseStartedAt ?? at);
+    const dailyTotals =
+      creditedMs > 0
+        ? {
+            ...state.dailyTotals,
+            [startedKey]: (state.dailyTotals[startedKey] ?? 0) + creditedMs,
+          }
+        : state.dailyTotals;
     return {
-      state: { ...state, phase, status: "running", cycleCount },
-      phaseEndAt: current + durationMs(phase, state.settings),
+      state: { ...state, phase, status: "running", cycleCount, dailyTotals },
+      phaseStartedAt: at,
+      phaseEndAt: at + durationMs(phase, state.settings),
       pausedRemainingMs: null,
-      now: current,
+      now: at,
     };
   }
 
@@ -121,82 +160,204 @@ function completePhase(prev: InternalState, current: number): InternalState {
       status: "awaitingManualStart",
       cycleCount: state.phase === "longBreak" ? 0 : state.cycleCount,
     },
+    phaseStartedAt: null,
     phaseEndAt: null,
     pausedRemainingMs: null,
-    now: current,
+    now: at,
   };
 }
 
-export function usePomodoroTimer(): UsePomodoroTimerResult {
+/**
+ * Reconciles real elapsed time: every auto-starting Phase whose absolute end
+ * time has passed completes in order, stopping at the manual-start gate.
+ */
+function settle(prev: InternalState, now: number): InternalState {
+  let current = prev;
+  while (
+    current.state.status === "running" &&
+    current.phaseEndAt !== null &&
+    now >= current.phaseEndAt
+  ) {
+    current = completePhase(
+      current,
+      current.phaseEndAt,
+      durationMs(current.state.phase, current.state.settings),
+    );
+  }
+  return current.now === now ? current : { ...current, now };
+}
+
+function defaultStorage(): StorageLike | null {
+  try {
+    return typeof window === "undefined" ? null : window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function isNumberOrNull(value: unknown): value is number | null {
+  return value === null || (typeof value === "number" && Number.isFinite(value));
+}
+
+function loadInternalState(storage: StorageLike | null): InternalState | null {
+  if (!storage) return null;
+  try {
+    const raw = storage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const saved = JSON.parse(raw);
+    const { state } = saved;
+    const settings = state?.settings;
+    const valid =
+      ["focus", "shortBreak", "longBreak"].includes(state?.phase) &&
+      ["awaitingManualStart", "running", "paused"].includes(state?.status) &&
+      Number.isInteger(state?.cycleCount) &&
+      typeof state?.dailyTotals === "object" &&
+      state.dailyTotals !== null &&
+      ["focusMin", "shortBreakMin", "longBreakMin", "cyclesBeforeLongBreak"].every(
+        (key) => typeof settings?.[key] === "number" && settings[key] > 0,
+      ) &&
+      isNumberOrNull(saved.phaseStartedAt) &&
+      isNumberOrNull(saved.phaseEndAt) &&
+      isNumberOrNull(saved.pausedRemainingMs) &&
+      (state.status !== "running" || saved.phaseEndAt !== null) &&
+      (state.status !== "paused" || saved.pausedRemainingMs !== null);
+    if (!valid) return null;
+    return {
+      state,
+      phaseStartedAt: saved.phaseStartedAt,
+      phaseEndAt: saved.phaseEndAt,
+      pausedRemainingMs: saved.pausedRemainingMs,
+      now: 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function saveInternalState(storage: StorageLike | null, internal: InternalState) {
+  if (!storage) return;
+  try {
+    storage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        state: internal.state,
+        phaseStartedAt: internal.phaseStartedAt,
+        phaseEndAt: internal.phaseEndAt,
+        pausedRemainingMs: internal.pausedRemainingMs,
+      }),
+    );
+  } catch {
+    // Storage full or blocked: the timer keeps working in memory.
+  }
+}
+
+export function usePomodoroTimer(
+  options: UsePomodoroTimerOptions = {},
+): UsePomodoroTimerResult {
+  const clock = options.now ?? Date.now;
+  const storage =
+    options.storage === undefined ? defaultStorage() : options.storage;
+
   const [internal, setInternal] = useState<InternalState>(initialInternalState);
+  const [hydrated, setHydrated] = useState(false);
+
+  // Restore after mount (not in the initializer) so the first client render
+  // matches the prerendered markup.
+  useEffect(() => {
+    const saved = loadInternalState(storage);
+    // Syncing from an external system (localStorage) on mount is the one
+    // legitimate setState-in-effect: it can't run in the initializer without a
+    // hydration mismatch.
+    /* eslint-disable react-hooks/set-state-in-effect */
+    if (saved) setInternal(settle(saved, clock()));
+    setHydrated(true);
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [storage, clock]);
+
+  // Persist only the fields that survive a reload, so the per-tick `now`
+  // update doesn't rewrite storage four times a second.
+  const { state, phaseStartedAt, phaseEndAt, pausedRemainingMs } = internal;
+  useEffect(() => {
+    if (!hydrated) return;
+    saveInternalState(storage, {
+      state,
+      phaseStartedAt,
+      phaseEndAt,
+      pausedRemainingMs,
+      now: 0,
+    });
+  }, [hydrated, storage, state, phaseStartedAt, phaseEndAt, pausedRemainingMs]);
 
   const start = useCallback(() => {
-    const startedAt = Date.now();
+    const startedAt = clock();
     setInternal((prev) => {
       if (prev.state.status !== "awaitingManualStart") return prev;
       return {
         state: { ...prev.state, status: "running" },
+        phaseStartedAt: startedAt,
         phaseEndAt:
           startedAt + durationMs(prev.state.phase, prev.state.settings),
         pausedRemainingMs: null,
         now: startedAt,
       };
     });
-  }, []);
+  }, [clock]);
 
   const pause = useCallback(() => {
-    const pausedAt = Date.now();
+    const pausedAt = clock();
     setInternal((prev) => {
       if (prev.state.status !== "running" || prev.phaseEndAt === null) {
         return prev;
       }
       return {
+        ...prev,
         state: { ...prev.state, status: "paused" },
         phaseEndAt: null,
         pausedRemainingMs: Math.max(0, prev.phaseEndAt - pausedAt),
         now: pausedAt,
       };
     });
-  }, []);
+  }, [clock]);
 
   const resume = useCallback(() => {
-    const resumedAt = Date.now();
+    const resumedAt = clock();
     setInternal((prev) => {
       if (prev.state.status !== "paused" || prev.pausedRemainingMs === null) {
         return prev;
       }
       return {
+        ...prev,
         state: { ...prev.state, status: "running" },
         phaseEndAt: resumedAt + prev.pausedRemainingMs,
         pausedRemainingMs: null,
         now: resumedAt,
       };
     });
-  }, []);
+  }, [clock]);
 
   const skip = useCallback(() => {
-    const skippedAt = Date.now();
+    const skippedAt = clock();
     setInternal((prev) => {
       if (prev.state.status === "awaitingManualStart") return prev;
-      return completePhase(prev, skippedAt);
+      const full = durationMs(prev.state.phase, prev.state.settings);
+      const remaining =
+        prev.state.status === "paused"
+          ? (prev.pausedRemainingMs ?? full)
+          : Math.max(0, (prev.phaseEndAt ?? skippedAt) - skippedAt);
+      return completePhase(prev, skippedAt, full - remaining);
     });
-  }, []);
+  }, [clock]);
 
   useEffect(() => {
     if (internal.state.status !== "running") return;
 
     const id = setInterval(() => {
-      const current = Date.now();
-      setInternal((prev) => {
-        if (prev.phaseEndAt !== null && current >= prev.phaseEndAt) {
-          return completePhase(prev, current);
-        }
-        return { ...prev, now: current };
-      });
+      const current = clock();
+      setInternal((prev) => settle(prev, current));
     }, TICK_MS);
 
     return () => clearInterval(id);
-  }, [internal.state.status]);
+  }, [internal.state.status, clock]);
 
   const remainingMs =
     internal.state.status === "running" && internal.phaseEndAt !== null
@@ -205,5 +366,18 @@ export function usePomodoroTimer(): UsePomodoroTimerResult {
         ? internal.pausedRemainingMs
         : null;
 
-  return { state: internal.state, remainingMs, start, pause, resume, skip };
+  const todayTotalMs =
+    internal.now === 0
+      ? 0
+      : (internal.state.dailyTotals[dayKey(internal.now)] ?? 0);
+
+  return {
+    state: internal.state,
+    remainingMs,
+    todayTotalMs,
+    start,
+    pause,
+    resume,
+    skip,
+  };
 }
