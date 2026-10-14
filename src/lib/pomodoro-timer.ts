@@ -82,6 +82,39 @@ function initialInternalState(): InternalState {
   return { state: initialState(), phaseEndAt: null, now: 0 };
 }
 
+/**
+ * Natural end of the running Phase. A Focus Session advances the Cycle and
+ * auto-starts a Break; a Break always hands back to a manually-started Focus
+ * Session, and a Long Break closes the Cycle.
+ */
+function completePhase(prev: InternalState, current: number): InternalState {
+  const { state } = prev;
+
+  if (state.phase === "focus") {
+    const cycleCount = state.cycleCount + 1;
+    const phase: Phase =
+      cycleCount >= state.settings.cyclesBeforeLongBreak
+        ? "longBreak"
+        : "shortBreak";
+    return {
+      state: { ...state, phase, status: "running", cycleCount },
+      phaseEndAt: current + durationMs(phase, state.settings),
+      now: current,
+    };
+  }
+
+  return {
+    state: {
+      ...state,
+      phase: "focus",
+      status: "awaitingManualStart",
+      cycleCount: state.phase === "longBreak" ? 0 : state.cycleCount,
+    },
+    phaseEndAt: null,
+    now: current,
+  };
+}
+
 export function usePomodoroTimer(): UsePomodoroTimerResult {
   const [internal, setInternal] = useState<InternalState>(initialInternalState);
 
@@ -105,11 +138,7 @@ export function usePomodoroTimer(): UsePomodoroTimerResult {
       const current = Date.now();
       setInternal((prev) => {
         if (prev.phaseEndAt !== null && current >= prev.phaseEndAt) {
-          return {
-            state: { ...prev.state, status: "awaitingManualStart" },
-            phaseEndAt: null,
-            now: current,
-          };
+          return completePhase(prev, current);
         }
         return { ...prev, now: current };
       });

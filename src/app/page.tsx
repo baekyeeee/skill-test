@@ -29,6 +29,9 @@ export default function Home() {
           <p className="text-lg text-zinc-700 dark:text-zinc-300">
             狀態：{STATUS_LABEL[state.status]}
           </p>
+          <p className="text-lg text-zinc-700 dark:text-zinc-300">
+            Cycle：{state.cycleCount} / {state.settings.cyclesBeforeLongBreak}
+          </p>
           {remainingMs !== null && (
             <p className="text-5xl font-mono font-semibold tabular-nums text-black dark:text-zinc-50">
               {formatRemaining(remainingMs)}
