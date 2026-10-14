@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<title>PROTOTYPE — 番茄鐘狀態機展示（非正式畫面，用完即丟）</title>
+<style>
+  :root { --accent: #e8553f; --ink: #1f2430; --paper: #fafafa; --line: #e3e0da; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 2.5rem clamp(1rem, 4vw, 4rem) 5rem;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--paper); color: var(--ink); line-height: 1.6;
+  }
+  h1 { font-size: 1.5rem; margin: 0 0 0.25rem; }
+  .badge {
+    display: inline-block; background: var(--accent); color: white; font-size: 0.7rem;
+    padding: 0.15rem 0.5rem; border-radius: 999px; letter-spacing: 0.05em; margin-bottom: 0.75rem;
+  }
+  .intro { max-width: 62ch; color: #4a4f5c; margin-bottom: 2rem; }
+  .card {
+    background: white; border: 1px solid var(--line); border-radius: 12px;
+    padding: 1.25rem 1.5rem; margin-bottom: 1.5rem;
+  }
+  .card h2 { font-size: 1rem; margin: 0 0 0.9rem; color: #777; font-weight: 600; letter-spacing: 0.02em; }
+  .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0.9rem 1.5rem; }
+  .field label { display: block; font-size: 0.75rem; color: #8a8f99; margin-bottom: 0.2rem; }
+  .field .value { font-size: 1.1rem; font-weight: 600; }
+  .field .value.accent { color: var(--accent); }
+  .changed {
+    background: #fff4f2; border: 1px solid #f3c7bd; color: #9c3321;
+    border-radius: 8px; padding: 0.6rem 0.9rem; font-size: 0.9rem; margin-bottom: 1.25rem;
+    min-height: 1.4em;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  th, td { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--line); }
+  th { color: #8a8f99; font-weight: 500; font-size: 0.75rem; }
+  .buttons { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+  button {
+    font: inherit; border: 1px solid var(--line); background: white; color: var(--ink);
+    padding: 0.5rem 0.9rem; border-radius: 8px; cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  button.primary { background: var(--accent); color: white; border-color: var(--accent); }
+  button.primary:hover:not(:disabled) { opacity: 0.9; }
+  button:disabled { opacity: 0.35; cursor: not-allowed; }
+  .row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+  input[type="number"] { width: 5rem; padding: 0.45rem; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
+  .tabs { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 1rem; }
+  .tabs button { border-radius: 999px; font-size: 0.85rem; }
+  .tabs button.active { background: var(--ink); color: white; border-color: var(--ink); }
+  .scenario-desc { color: #4a4f5c; font-size: 0.9rem; margin-bottom: 1rem; }
+  .steps { display: flex; flex-direction: column; gap: 0.5rem; }
+  .step { display: flex; align-items: center; gap: 0.6rem; }
+  .step .n {
+    width: 1.5rem; height: 1.5rem; border-radius: 50%; background: var(--line); color: #777;
+    display: flex; align-items: center; justify-content: center; font-size: 0.75rem; flex-shrink: 0;
+  }
+  .step.done .n { background: var(--accent); color: white; }
+  .log { max-height: 10rem; overflow-y: auto; font-size: 0.85rem; color: #555; }
+  .log div { padding: 0.15rem 0; border-bottom: 1px dashed var(--line); }
+</style>
+</head>
+<body>
+
+<span class="badge">PROTOTYPE — 丟棄用，不要接上正式程式碼</span>
+<h1>番茄鐘狀態機展示</h1>
+<p class="intro">
+  這份展示要回答的問題：Phase（Focus Session / Short Break / Long Break）之間的轉換、
+  Cycle 計數、暫停與提早結束時的計時方式，以及「長時間沒開分頁」「一次 Focus Session 跨過午夜」
+  這些邊角情況，照我們討論出的規則走，是不是真的「感覺對」？
+  時間用模擬時鐘推進（不用真的等 25 分鐘），每次操作後下面都會顯示完整的目前狀態。
+</p>
+
+<div class="card">
+  <h2>目前狀態</h2>
+  <div class="fields" id="fields"></div>
+</div>
+
+<div class="changed" id="changed"></div>
+
+<div class="card">
+  <h2>自由操作</h2>
+  <div class="buttons" id="freeplay-actions"></div>
+  <div class="row" style="margin-top:0.9rem">
+    <button id="advance-custom-btn">前進</button>
+    <input type="number" id="advance-minutes" value="5" min="1" /> 分鐘
+    <button id="reset-btn" style="margin-left:auto">↺ 重置整個展示</button>
+  </div>
+</div>
+
+<div class="card">
+  <h2>引導情境</h2>
+  <div class="tabs" id="tabs"></div>
+  <div class="scenario-desc" id="scenario-desc"></div>
+  <div class="steps" id="steps"></div>
+</div>
+
+<div class="card">
+  <h2>最近發生的事</h2>
+  <div class="log" id="log"></div>
+</div>
+
+<script>
+// ============================================================
+// PURE MODULE — no DOM access below this line. This is the part
+// that would lift into the real app once the model is validated.
+// ============================================================
+(function () {
+  const MIN = 60 * 1000;
+  const HOUR = 60 * MIN;
+
+  const PHASE_LABEL = {
+    focus: 'Focus Session（專注）',
+    shortBreak: 'Short Break（短休息）',
+    longBreak: 'Long Break（長休息）',
+  };
+  const STATUS_LABEL = {
+    awaitingManualStart: '等待手動開始',
+    running: '進行中',
+    paused: '已暫停',
+  };
+
+  const DEFAULT_SETTINGS = { focusMin: 25, shortBreakMin: 5, longBreakMin: 15, cyclesBeforeLongBreak: 4 };
+  // Fixed anchor so every reset/demo run behaves identically regardless of wall-clock time.
+  const ANCHOR_NOW = new Date(2024, 0, 1, 9, 0, 0).getTime(); // Mon 2024-01-01 09:00:00 local
+
+  function dayKey(ts) {
+    const d = new Date(ts);
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+
+  function durationMs(phase, settings) {
+    const minutes = phase === 'focus' ? settings.focusMin : phase === 'shortBreak' ? settings.shortBreakMin : settings.longBreakMin;
+    return minutes * MIN;
+  }
+
+  function creditFocus(dailyTotals, startedAt, elapsedMs) {
+    const key = dayKey(startedAt);
+    const prev = dailyTotals[key] || 0;
+    return Object.assign({}, dailyTotals, { [key]: prev + Math.max(0, elapsedMs) });
+  }
+
+  // Decides what comes after a phase completes (naturally or via Skip) and whether it auto-starts.
+  function nextPhaseAfter(phase, cycleCount, settings) {
+    if (phase === 'focus') {
+      const newCycleCount = cycleCount + 1;
+      if (newCycleCount >= settings.cyclesBeforeLongBreak) {
+        return { phase: 'longBreak', cycleCount: newCycleCount, autoStart: true };
+      }
+      return { phase: 'shortBreak', cycleCount: newCycleCount, autoStart: true };
+    }
+    // Any break -> always Focus, always manual start. Long Break resets the cycle count.
+    const newCycleCount = phase === 'longBreak' ? 0 : cycleCount;
+    return { phase: 'focus', cycleCount: newCycleCount, autoStart: false };
+  }
+
+  function initialState() {
+    return {
+      now: ANCHOR_NOW,
+      settings: DEFAULT_SETTINGS,
+      phase: 'focus',
+      status: 'awaitingManualStart',
+      cycleCount: 0,
+      phaseStartedAt: null,
+      phaseEndAt: null,
+      pausedRemainingMs: null,
+      dailyTotals: {},
+      log: [],
+    };
+  }
+
+  function withLog(state, note) {
+    const entry = { at: state.now, note };
+    return Object.assign({}, state, { log: [entry].concat(state.log).slice(0, 12) });
+  }
+
+  // (state, action) => state. Pure. This is the shape worth lifting into the real app.
+  function reducer(state, action) {
+    switch (action.type) {
+      case 'RESET':
+        return initialState();
+
+      case 'START': {
+        if (state.status !== 'awaitingManualStart') return state;
+        const phaseStartedAt = state.now;
+        const phaseEndAt = phaseStartedAt + durationMs(state.phase, state.settings);
+        return withLog(
+          Object.assign({}, state, { status: 'running', phaseStartedAt, phaseEndAt, pausedRemainingMs: null }),
+          `開始 ${PHASE_LABEL[state.phase]}`
+        );
+      }
+
+      case 'PAUSE': {
+        if (state.status !== 'running') return state;
+        const remaining = state.phaseEndAt - state.now;
+        return withLog(
+          Object.assign({}, state, { status: 'paused', pausedRemainingMs: remaining, phaseEndAt: null }),
+          `暫停 ${PHASE_LABEL[state.phase]}（剩 ${Math.round(remaining / 1000)} 秒）`
+        );
+      }
+
+      case 'RESUME': {
+        if (state.status !== 'paused') return state;
+        const phaseEndAt = state.now + state.pausedRemainingMs;
+        return withLog(
+          Object.assign({}, state, { status: 'running', phaseEndAt, pausedRemainingMs: null }),
+          `繼續 ${PHASE_LABEL[state.phase]}`
+        );
+      }
+
+      case 'SKIP': {
+        if (state.status !== 'running' && state.status !== 'paused') return state;
+        let dailyTotals = state.dailyTotals;
+        if (state.phase === 'focus') {
+          const elapsed = state.status === 'running'
+            ? state.now - state.phaseStartedAt
+            : durationMs('focus', state.settings) - state.pausedRemainingMs;
+          dailyTotals = creditFocus(dailyTotals, state.phaseStartedAt, elapsed);
+        }
+        const { phase, cycleCount, autoStart } = nextPhaseAfter(state.phase, state.cycleCount, state.settings);
+        const skippedLabel = PHASE_LABEL[state.phase];
+        let next = Object.assign({}, state, { dailyTotals, phase, cycleCount, pausedRemainingMs: null });
+        if (autoStart) {
+          const phaseStartedAt = state.now;
+          const phaseEndAt = phaseStartedAt + durationMs(phase, state.settings);
+          next = Object.assign(next, { status: 'running', phaseStartedAt, phaseEndAt });
+        } else {
+          next = Object.assign(next, { status: 'awaitingManualStart', phaseStartedAt: null, phaseEndAt: null });
+        }
+        return withLog(next, `提早結束 ${skippedLabel}，接著：${autoStart ? '自動開始 ' + PHASE_LABEL[phase] : '等待手動開始 ' + PHASE_LABEL[phase]}`);
+      }
+
+      case 'ADVANCE_TIME': {
+        let s = Object.assign({}, state, { now: state.now + action.ms });
+        let notes = [];
+        let guard = 0;
+        while (s.status === 'running' && s.phaseEndAt !== null && s.now >= s.phaseEndAt && guard < 1000) {
+          guard++;
+          const completedPhase = s.phase;
+          const completionTime = s.phaseEndAt;
+          let dailyTotals = s.dailyTotals;
+          if (completedPhase === 'focus') {
+            dailyTotals = creditFocus(dailyTotals, s.phaseStartedAt, durationMs('focus', s.settings));
+          }
+          const { phase, cycleCount, autoStart } = nextPhaseAfter(completedPhase, s.cycleCount, s.settings);
+          if (autoStart) {
+            const phaseStartedAt = completionTime;
+            const phaseEndAt = phaseStartedAt + durationMs(phase, s.settings);
+            notes.push(`${PHASE_LABEL[completedPhase]} 自然結束 → 自動開始 ${PHASE_LABEL[phase]}`);
+            s = Object.assign({}, s, { dailyTotals, phase, cycleCount, status: 'running', phaseStartedAt, phaseEndAt });
+          } else {
+            notes.push(`${PHASE_LABEL[completedPhase]} 自然結束 → 等待手動開始 ${PHASE_LABEL[phase]}`);
+            s = Object.assign({}, s, { dailyTotals, phase, cycleCount, status: 'awaitingManualStart', phaseStartedAt: null, phaseEndAt: null });
+          }
+        }
+        const label = action.label || `經過 ${Math.round(action.ms / MIN)} 分鐘`;
+        return withLog(s, notes.length ? `${label}：${notes.join('；')}` : label);
+      }
+
+      default:
+        return state;
+    }
+  }
+
+  window.PomodoroPrototype = { reducer, initialState, PHASE_LABEL, STATUS_LABEL, dayKey, durationMs, MIN, HOUR };
+})();
+</script>
+
+<script>
+// ============================================================
+// THROWAWAY PAGE SHELL — all DOM wiring lives here. Calls into
+// the pure module above; nothing flows the other direction.
+// ============================================================
+(function () {
+  const { reducer, initialState, PHASE_LABEL, STATUS_LABEL, MIN, HOUR } = window.PomodoroPrototype;
+
+  let state = initialState();
+  let activeScenario = null; // { id, stepIndex }
+
+  function dispatch(action) {
+    const prev = state;
+    state = reducer(state, action);
+    render(prev);
+  }
+
+  function fmtClock(ts) {
+    const d = new Date(ts);
+    const days = ['日', '一', '二', '三', '四', '五', '六'];
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())}（${days[d.getDay()]}） ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  }
+
+  function fmtHMS(ms) {
+    if (ms == null) return '—';
+    const totalSec = Math.max(0, Math.round(ms / 1000));
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    const pad = (n) => String(n).padStart(2, '0');
+    return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+  }
+
+  function fmtMinutes(ms) {
+    return `${Math.round(ms / MIN)} 分鐘`;
+  }
+
+  function field(label, value, accent) {
+    return `<div class="field"><label>${label}</label><div class="value${accent ? ' accent' : ''}">${value}</div></div>`;
+  }
+
+  function render(prevState) {
+    const fields = document.getElementById('fields');
+    const remaining = state.status === 'running' ? state.phaseEndAt - state.now
+      : state.status === 'paused' ? state.pausedRemainingMs
+      : null;
+    const todayKey = window.PomodoroPrototype.dayKey(state.now);
+    const todayTotal = state.dailyTotals[todayKey] || 0;
+
+    fields.innerHTML = [
+      field('模擬時鐘（Now）', fmtClock(state.now)),
+      field('目前 Phase', PHASE_LABEL[state.phase], true),
+      field('狀態', STATUS_LABEL[state.status]),
+      field('剩餘時間', fmtHMS(remaining)),
+      field('Cycle 進度', `${state.cycleCount} / ${state.settings.cyclesBeforeLongBreak}`),
+      field('今日 Daily Focus Total', fmtMinutes(todayTotal), true),
+    ].join('');
+
+    const historyRows = Object.keys(state.dailyTotals).sort().map(
+      (k) => `<tr><td>${k}</td><td>${fmtMinutes(state.dailyTotals[k])}</td></tr>`
+    ).join('');
+    fields.innerHTML += `<div class="field" style="grid-column:1/-1">
+      <label>每日歷史總表</label>
+      <table><thead><tr><th>日期</th><th>Daily Focus Total</th></tr></thead>
+      <tbody>${historyRows || '<tr><td colspan="2">（還沒有任何紀錄）</td></tr>'}</tbody></table>
+    </div>`;
+
+    const changedEl = document.getElementById('changed');
+    if (prevState) {
+      const latest = state.log[0];
+      changedEl.textContent = latest ? `剛剛發生：${latest.note}` : '';
+    }
+
+    renderFreeplay(remaining);
+    renderSteps();
+
+    document.getElementById('log').innerHTML = state.log.map(
+      (e) => `<div>${fmtClock(e.at)} — ${e.note}</div>`
+    ).join('') || '<div>（還沒有操作紀錄）</div>';
+  }
+
+  function renderFreeplay() {
+    const box = document.getElementById('freeplay-actions');
+    const canStart = state.status === 'awaitingManualStart';
+    const canPause = state.status === 'running';
+    const canResume = state.status === 'paused';
+    const canSkip = state.status === 'running' || state.status === 'paused';
+    const remainingForJump = state.status === 'running' ? state.phaseEndAt - state.now : null;
+
+    box.innerHTML = '';
+    const btn = (label, onClick, disabled, primary) => {
+      const b = document.createElement('button');
+      b.textContent = label;
+      b.disabled = !!disabled;
+      if (primary) b.className = 'primary';
+      b.onclick = onClick;
+      box.appendChild(b);
+    };
+
+    btn('▶ 開始 Start', () => dispatch({ type: 'START' }), !canStart, true);
+    btn('⏸ 暫停 Pause', () => dispatch({ type: 'PAUSE' }), !canPause);
+    btn('⏵ 繼續 Resume', () => dispatch({ type: 'RESUME' }), !canResume);
+    btn('⏭ 提早結束 Skip', () => dispatch({ type: 'SKIP' }), !canSkip);
+    btn('+10 秒', () => dispatch({ type: 'ADVANCE_TIME', ms: 10 * 1000, label: '前進 10 秒' }));
+    btn('+10 分鐘', () => dispatch({ type: 'ADVANCE_TIME', ms: 10 * MIN, label: '前進 10 分鐘' }));
+    btn('+1 小時', () => dispatch({ type: 'ADVANCE_TIME', ms: HOUR, label: '前進 1 小時' }));
+    btn('+9 小時（模擬過夜沒開分頁）', () => dispatch({ type: 'ADVANCE_TIME', ms: 9 * HOUR, label: '閉上筆電過了 9 小時' }));
+    btn('跳到目前 Phase 結束', () => dispatch({ type: 'ADVANCE_TIME', ms: remainingForJump, label: '跳到這個 Phase 結束' }), remainingForJump == null);
+  }
+
+  document.getElementById('advance-custom-btn').onclick = () => {
+    const minutes = Number(document.getElementById('advance-minutes').value) || 0;
+    dispatch({ type: 'ADVANCE_TIME', ms: minutes * MIN, label: `前進 ${minutes} 分鐘` });
+  };
+  document.getElementById('reset-btn').onclick = () => {
+    activeScenario = null;
+    dispatch({ type: 'RESET' });
+    renderTabs();
+  };
+
+  // ---- Guided scenarios ----
+  const SCENARIOS = [
+    {
+      id: 'happy',
+      title: '① 順利走完一輪',
+      desc: '最單純的情況：專注完、自動進入短休息、短休息完、換你手動開始下一次專注。',
+      steps: [
+        { label: '開始 Focus Session', action: { type: 'START' } },
+        { label: '跳到 Focus Session 結束（自然完成）', action: { type: 'ADVANCE_TIME', ms: 25 * MIN, label: 'Focus Session 跑完' } },
+        { label: '跳到 Short Break 結束（自然完成）', action: { type: 'ADVANCE_TIME', ms: 5 * MIN, label: 'Short Break 跑完' } },
+        { label: '手動開始下一次 Focus Session', action: { type: 'START' } },
+      ],
+    },
+    {
+      id: 'skip',
+      title: '② 提早結束也算數',
+      desc: '中途按「提早結束」：只跑了一部分時間，這部分時間要算進今天的 Daily Focus Total，Cycle 也照樣往前走。',
+      steps: [
+        { label: '開始 Focus Session', action: { type: 'START' } },
+        { label: '前進 10 分鐘（還沒跑完）', action: { type: 'ADVANCE_TIME', ms: 10 * MIN, label: '前進 10 分鐘' } },
+        { label: '提早結束這次 Focus Session', action: { type: 'SKIP' } },
+      ],
+    },
+    {
+      id: 'pause',
+      title: '③ 暫停不會偷偷計時',
+      desc: '暫停之後，不管模擬時鐘怎麼前進，剩餘時間都不會變，直到按下繼續。',
+      steps: [
+        { label: '開始 Focus Session', action: { type: 'START' } },
+        { label: '前進 5 分鐘', action: { type: 'ADVANCE_TIME', ms: 5 * MIN, label: '前進 5 分鐘' } },
+        { label: '暫停', action: { type: 'PAUSE' } },
+        { label: '（試試看）暫停中前進 2 小時——剩餘時間應該不變', action: { type: 'ADVANCE_TIME', ms: 2 * HOUR, label: '暫停中前進 2 小時' } },
+        { label: '繼續', action: { type: 'RESUME' } },
+        { label: '跳到結束——應該完整計入 25 分鐘', action: { type: 'ADVANCE_TIME', ms: 20 * MIN, label: '跳到結束' } },
+      ],
+    },
+    {
+      id: 'overnight',
+      title: '④ 闔上筆電過一夜',
+      desc: '專注跑完、接著的休息也跑完了，但下一次專注一樣要等你手動按開始，不會自己一路跑下去。',
+      steps: [
+        { label: '開始 Focus Session', action: { type: 'START' } },
+        { label: '闔上筆電，過了 9 小時', action: { type: 'ADVANCE_TIME', ms: 9 * HOUR, label: '闔上筆電過了 9 小時' } },
+        { label: '回來後手動開始下一次 Focus Session', action: { type: 'START' } },
+      ],
+    },
+    {
+      id: 'midnight',
+      title: '⑤ 跨過午夜的那一次',
+      desc: '晚上 23:50 開始專注，跑到隔天 00:15 才結束——這 25 分鐘要整段算在「開始的那一天」，不拆成兩天。',
+      steps: [
+        { label: '前進到當天 23:50', action: { type: 'ADVANCE_TIME', ms: 14 * HOUR + 50 * MIN, label: '前進到晚上 23:50' } },
+        { label: '開始 Focus Session', action: { type: 'START' } },
+        { label: '跳到結束（跨過午夜）', action: { type: 'ADVANCE_TIME', ms: 25 * MIN, label: '跳到結束，跨過午夜' } },
+      ],
+    },
+  ];
+
+  function selectScenario(id) {
+    activeScenario = { id, stepIndex: 0 };
+    dispatch({ type: 'RESET' });
+    renderTabs();
+  }
+
+  function renderTabs() {
+    const tabs = document.getElementById('tabs');
+    tabs.innerHTML = '';
+    SCENARIOS.forEach((sc) => {
+      const b = document.createElement('button');
+      b.textContent = sc.title;
+      if (activeScenario && activeScenario.id === sc.id) b.className = 'active';
+      b.onclick = () => selectScenario(sc.id);
+      tabs.appendChild(b);
+    });
+    document.getElementById('scenario-desc').textContent = activeScenario
+      ? SCENARIOS.find((s) => s.id === activeScenario.id).desc
+      : '點一個情境開始，或直接在上面自由操作。';
+    renderSteps();
+  }
+
+  function renderSteps() {
+    const el = document.getElementById('steps');
+    el.innerHTML = '';
+    if (!activeScenario) return;
+    const sc = SCENARIOS.find((s) => s.id === activeScenario.id);
+    sc.steps.forEach((step, i) => {
+      const div = document.createElement('div');
+      div.className = 'step' + (i < activeScenario.stepIndex ? ' done' : '');
+      const n = document.createElement('div');
+      n.className = 'n';
+      n.textContent = i + 1;
+      const b = document.createElement('button');
+      b.textContent = step.label;
+      b.disabled = i !== activeScenario.stepIndex;
+      b.onclick = () => {
+        dispatch(step.action);
+        activeScenario.stepIndex++;
+        renderSteps();
+      };
+      div.appendChild(n);
+      div.appendChild(b);
+      el.appendChild(div);
+    });
+  }
+
+  renderTabs();
+  render(null);
+})();
+</script>
+</body>
+</html>
